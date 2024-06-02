@@ -1,4 +1,6 @@
 import torch
+
+from config import my_device
 from utils import *
 
 
@@ -17,37 +19,44 @@ class ReservoirNet(nn.Module):
         self.W *= 1.25 / self.rhoW
         self.reg = 1e-12
         self.one = torch.ones([1, 1])
+        self.cdevice = my_device
 
 
     def RCPred(self, Wout, RCin):
         T = RCin.size(0)
-        X = torch.zeros([1 + self.inSize + self.resSize, T])
-        x = torch.zeros((self.resSize, 1))
+        X = torch.zeros([1 + self.inSize + self.resSize, T], device=self.cdevice)
+        x = torch.zeros((self.resSize, 1), device=self.cdevice)
+        one = self.one.to(self.cdevice)  # 确保 self.one 在同一个设备上
+        Win = self.Win.to(self.cdevice)  # 确保 self.Win 在同一个设备上
+        W = self.W.to(self.cdevice)  # 确保 self.W 在同一个设备上
+
         for t in range(RCin.size(0)):
             u = RCin[t:t + 1, :].T
-            x = (1 - self.a) * x + self.a * sigmoid(torch.matmul(self.Win, torch.vstack((self.one, u))) + torch.matmul(self.W, x))
-            X[:, t] = torch.vstack((self.one, u, x))[:, 0]
+            x = (1 - self.a) * x + self.a * sigmoid(torch.matmul(Win, torch.vstack((one, u))) + torch.matmul(W, x))
+            X[:, t] = torch.vstack((one, u, x))[:, 0]
 
         pred = Wout @ X
         return pred
-
 
     def forward(self, data, labels):
         self.U = data
         self.Yt = labels
         self.T = labels.size(0)
-        self.X = torch.zeros([1 + self.inSize + self.resSize, self.T])
-        self.x = torch.zeros((self.resSize, 1))
+        self.X = torch.zeros([1 + self.inSize + self.resSize, self.T], device=self.cdevice)
+        self.x = torch.zeros((self.resSize, 1), device=self.cdevice)
+        self.one = self.one.to(self.cdevice)  # 确保 self.one 在同一个设备上
 
         for t in range(self.U.size(0)):
             self.u = self.U[t:t + 1, :].T
             self.x = (1 - self.a) * self.x + self.a * sigmoid(
-                torch.matmul(self.Win, torch.vstack((self.one, self.u))) + torch.matmul(self.W, self.x))
+                torch.matmul(self.Win.to(self.cdevice), torch.vstack((self.one, self.u))) + torch.matmul(self.W.to(self.cdevice),
+                                                                                                   self.x))
             self.X[:, t] = torch.vstack((self.one, self.u, self.x))[:, 0]
 
         self.Wout = torch.matmul(torch.matmul(self.Yt.T, self.X.T),
                                  torch.linalg.inv(
-                                     torch.matmul(self.X, self.X.T) + self.reg * torch.eye(1 + self.inSize + self.resSize)))
+                                     torch.matmul(self.X, self.X.T) + self.reg * torch.eye(
+                                         1 + self.inSize + self.resSize, device=self.cdevice)))
 
         return self.Wout
 

@@ -6,9 +6,11 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score, roc_curve, auc
 
 from Network import *
+from config import my_device
 from dataset import *
 from utils import *
 
+print(f"torch version:{torch.__version__}")
 warnings.filterwarnings('ignore')
 
 parser = argparse.ArgumentParser(description='PyTorch Siamese Reservoir Network')
@@ -40,6 +42,8 @@ print(args)
 myseed = args.seed
 np.random.seed(myseed)
 torch.manual_seed(myseed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(myseed)
 print("Current Seed: ", myseed)
 
 print("Initializing...")
@@ -52,19 +56,19 @@ a = args.alpha
 trainLen = args.trainLen
 batch_size_train = args.batch_size_train
 batch_size_test = args.batch_size_test
-device = torch.device(args.device)
+device = my_device
 
 # ger_mnist(): If noise=True, then a Gaussian noise will be added to the raw images.
 train_iter, test_iter = get_mnist(batch_size_train, batch_size_test, noise=args.noise, sigma=args.sigma)
 
-loss = nn.MSELoss()
+loss = nn.MSELoss().to(device)
 Train_MSE = []
 Train_AUC = []
 Test_MSE = []
 Test_AUC = []
 
-rc = ReservoirNet(inSize, resSize, a)
-net2rc = Siamese2RC(inSize, filters)
+rc = ReservoirNet(inSize, resSize, a).to(device)
+net2rc = Siamese2RC(inSize, filters).to(device)
 print("Initialized!")
 
 
@@ -78,9 +82,9 @@ def train(net2rc, rc, train_iter, test_iter, device):
     start = time.time()
     with torch.no_grad():
         Wouts = []
-        train_simi = torch.zeros((10, batch_size_train))
-        train_labels = torch.zeros((10, batch_size_train))
-        test_simi = torch.zeros((10, batch_size_test))
+        train_simi = torch.zeros((10, batch_size_train)).to(device)
+        train_labels = torch.zeros((10, batch_size_train)).to(device)
+        test_simi = torch.zeros((10, batch_size_test)).to(device)
         for times in range(10):
             train_start = time.time()
             for i, (img0, img1, label) in enumerate(train_iter):
@@ -88,7 +92,7 @@ def train(net2rc, rc, train_iter, test_iter, device):
                 RCin = net2rc(img0, img1)
                 gt = torch.hstack(
                     [torch.tensor([label[t] for _ in range(num_vec)]).T for t in range(batch_size_train)]).to(
-                    torch.float32)
+                    torch.float32).to(device)
                 if i == 0:
                     batch_Wout = rc(RCin, gt)
                 elif i > 0 and (i + 1) * batch_size_train <= trainLen:
@@ -102,8 +106,8 @@ def train(net2rc, rc, train_iter, test_iter, device):
                 train_labels[times, t] = gt[t * num_vec]
             l = loss(train_simi[times, :], train_labels[times, :].float())
             Train_MSE.append(l.item())
-            auc = roc_auc_score(train_labels[times, :].detach().numpy(),
-                                train_simi[times, :].detach().numpy())
+            auc = roc_auc_score(train_labels[times, :].detach().cpu().numpy(),
+                                train_simi[times, :].detach().cpu().numpy())
             Train_AUC.append(auc)
             train_end = time.time() - train_start
             print('================================')
@@ -119,8 +123,8 @@ def train(net2rc, rc, train_iter, test_iter, device):
                     test_simi[times, t] = torch.mean(pred[t * num_vec:(t + 1) * num_vec])
                 l = loss(test_simi[times], label.float())
                 batch_MSE.append(l.item())
-                auc = roc_auc_score(label.detach().numpy(),
-                                    test_simi[times, :].detach().numpy())
+                auc = roc_auc_score(label.detach().cpu().numpy(),
+                                    test_simi[times, :].detach().cpu().numpy())
                 batch_AUC.append(auc)
             Test_MSE.append(np.mean(batch_MSE))
             Test_AUC.append(np.mean(batch_AUC))
@@ -137,9 +141,9 @@ def train(net2rc, rc, train_iter, test_iter, device):
         print(f'Total cost for 10 times training and testing: {total_cost:.4f}s')
         Wout = Wouts[testAUC_idx]
         if args.noise:
-            np.save(args.save_dir + f'noiseWout_{trainLen}_{batch_size_train}_{resSize}.npy', Wout.detach().numpy())
+            np.save(args.save_dir + f'noiseWout_{trainLen}_{batch_size_train}_{resSize}.npy', Wout.detach().cpu().numpy())
         else:
-            np.save(args.save_dir + f'Wout_{trainLen}_{batch_size_train}_{resSize}.npy', Wout.detach().numpy())
+            np.save(args.save_dir + f'Wout_{trainLen}_{batch_size_train}_{resSize}.npy', Wout.detach().cpu().numpy())
 
     return Wouts, Wout
 
@@ -151,8 +155,8 @@ def calculate_simi(model, rc, test_iter, batch_size_test, Wout, device):
     start = time.time()
     model.eval()
     with torch.no_grad():
-        similarity = torch.zeros((10000))
-        labels = torch.zeros((10000))
+        similarity = torch.zeros((10000)).to(device)
+        labels = torch.zeros((10000)).to(device)
         for i, (img0, img1, label) in enumerate(test_iter):
             img0, img1, label = img0.to(cuda), img1.to(cuda), label.to(cuda)
             labels[i * batch_size_test:(i + 1) * batch_size_test] = label
@@ -166,8 +170,8 @@ def calculate_simi(model, rc, test_iter, batch_size_test, Wout, device):
                 similarity[i * batch_size_test + t] = torch.mean(pred[t * num_vec:(t + 1) * num_vec])
             l = loss(similarity[i * batch_size_test:(i + 1) * batch_size_test], label.float())
             MSE.append(l.item())
-            auc = roc_auc_score(label.detach().numpy(),
-                                similarity[i * batch_size_test:(i + 1) * batch_size_test].detach().numpy())
+            auc = roc_auc_score(label.detach().cpu().numpy(),
+                                similarity[i * batch_size_test:(i + 1) * batch_size_test].detach().cpu().numpy())
             AUC.append(auc)
             print(f'Batch: {i + 1}, MSE: {l.item():.4f}, AUC: {auc:.4f}')
     time_test = time.time() - start
@@ -185,14 +189,14 @@ else:
 MSE = []
 AUC = []
 model = Siamese2RC(inSize, filters)
-model.load_state_dict(torch.load(args.load_dir + f'Siamese_{inSize}_{trainLen}_{batch_size_train}_{resSize}.pth', map_location=torch.device('cpu')))
+model.load_state_dict(torch.load(args.load_dir + f'Siamese_{inSize}_{trainLen}_{batch_size_train}_{resSize}.pth', map_location=device))
 model.eval()
 
 print("Testing:")
 similarity, example, labels = calculate_simi(model, rc, test_iter, batch_size_test, Wout, device)
 
-similarity = similarity.detach().numpy()
-labels = labels.detach().numpy()
+similarity = similarity.detach().cpu().numpy()
+labels = labels.detach().cpu().numpy()
 
 output = pd.DataFrame({'Similarity': similarity, 'Ground Truth': labels})
 
