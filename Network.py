@@ -9,31 +9,29 @@ warnings.filterwarnings('ignore')
 class ReservoirNet(nn.Module):
     def __init__(self, inSize, resSize, a):
         super(ReservoirNet, self).__init__()
+        self.cdevice = my_device
         self.inSize = inSize
         self.resSize = resSize
         self.a = a
-        self.Win = (torch.rand([self.resSize, 1 + self.inSize]) - 0.5) * 2.4
+        self.Win = ((torch.rand([self.resSize, 1 + self.inSize]) - 0.5) * 2.4).to(self.cdevice)
         self.W = (torch.rand(self.resSize, self.resSize) - 0.5)
         self.Win[abs(self.Win) > 0.6] = 0
         self.rhoW = max(abs(torch.linalg.eig(self.W)[0]))
         self.W *= 1.25 / self.rhoW
+        self.W = self.Win.to(self.cdevice)
         self.reg = 1e-12
-        self.one = torch.ones([1, 1])
-        self.cdevice = my_device
+        self.one = torch.ones([1, 1]).to(self.cdevice)
 
 
     def RCPred(self, Wout, RCin):
         T = RCin.size(0)
         X = torch.zeros([1 + self.inSize + self.resSize, T], device=self.cdevice)
         x = torch.zeros((self.resSize, 1), device=self.cdevice)
-        one = self.one.to(self.cdevice)  # 确保 self.one 在同一个设备上
-        Win = self.Win.to(self.cdevice)  # 确保 self.Win 在同一个设备上
-        W = self.W.to(self.cdevice)  # 确保 self.W 在同一个设备上
 
         for t in range(RCin.size(0)):
             u = RCin[t:t + 1, :].T
-            x = (1 - self.a) * x + self.a * sigmoid(torch.matmul(Win, torch.vstack((one, u))) + torch.matmul(W, x))
-            X[:, t] = torch.vstack((one, u, x))[:, 0]
+            x = (1 - self.a) * x + self.a * sigmoid(torch.matmul(self.Win, torch.vstack((self.one, u))) + torch.matmul(self.W, x))
+            X[:, t] = torch.vstack((self.one, u, x))[:, 0]
 
         pred = Wout @ X
         return pred
@@ -44,7 +42,6 @@ class ReservoirNet(nn.Module):
         self.T = labels.size(0)
         self.X = torch.zeros([1 + self.inSize + self.resSize, self.T], device=self.cdevice)
         self.x = torch.zeros((self.resSize, 1), device=self.cdevice)
-        self.one = self.one.to(self.cdevice)  # 确保 self.one 在同一个设备上
 
         for t in range(self.U.size(0)):
             self.u = self.U[t:t + 1, :].T
