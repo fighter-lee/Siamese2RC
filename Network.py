@@ -8,18 +8,18 @@ warnings.filterwarnings('ignore')
 
 class ReservoirNet(nn.Module):
     def __init__(self, inSize, resSize, a):
+        self.cdevice = my_device
         super(ReservoirNet, self).__init__()
         self.inSize = inSize
         self.resSize = resSize
         self.a = a
-        self.Win = (torch.rand([self.resSize, 1 + self.inSize]) - 0.5) * 2.4
-        self.W = (torch.rand(self.resSize, self.resSize) - 0.5)
+        self.Win = ((torch.rand([self.resSize, 1 + self.inSize]) - 0.5) * 2.4).to(self.cdevice)
+        self.W = (torch.rand(self.resSize, self.resSize) - 0.5).to(self.cdevice)
         self.Win[abs(self.Win) > 0.6] = 0
         self.rhoW = max(abs(torch.linalg.eig(self.W)[0]))
         self.W *= 1.25 / self.rhoW
         self.reg = 1e-12
-        self.one = torch.ones([1, 1])
-        self.cdevice = my_device
+        self.one = torch.ones([1, 1]).to(self.cdevice)
 
 
     def RCPred(self, Wout, RCin):
