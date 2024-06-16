@@ -42,8 +42,8 @@ print(args)
 myseed = args.seed
 np.random.seed(myseed)
 torch.manual_seed(myseed)
-# if torch.cuda.is_available():
-#     torch.cuda.manual_seed(myseed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(myseed)
 print("Current Seed: ", myseed)
 
 print("Initializing...")
@@ -67,8 +67,8 @@ Train_AUC = []
 Test_MSE = []
 Test_AUC = []
 
-rc = ReservoirNet(inSize, resSize, a)
-net2rc = Siamese2RC(inSize, filters)
+rc = ReservoirNet(inSize, resSize, a).to(device)
+net2rc = Siamese2RC(inSize, filters).to(device)
 print("Initialized!")
 
 
